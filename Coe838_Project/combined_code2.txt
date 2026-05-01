@@ -1,0 +1,1444 @@
+// arbiter.h
+#include "systemc.h"
+SC_MODULE(arbiter) {
+
+	sc_in<sc_uint<4> > arbiter_id;
+    sc_in<sc_uint<7>  >  req0;
+    sc_in<sc_uint<7>  >  req1;
+    sc_in<sc_uint<7>  >  req2;
+    sc_in<sc_uint<7>  >  req3;
+	sc_in<sc_uint<7>  >  req4;
+
+	sc_in<bool  >  free_out0;
+	sc_in<bool  >  free_out1;
+	sc_in<bool  >  free_out2;
+	sc_in<bool  >  free_out3;
+	sc_in<bool  >  free_out4;
+
+    sc_out<sc_uint<15> >  aselect;
+
+	sc_out<sc_uint<1> >  grant0;
+    sc_out<sc_uint<1> >  grant1;
+    sc_out<sc_uint<1> >  grant2;
+    sc_out<sc_uint<1> >  grant3;
+	sc_out<sc_uint<1> >  grant4;
+
+	sc_in<bool> aclk;
+	
+	void func();
+
+    SC_CTOR(arbiter) 
+     {
+      SC_THREAD(func);
+	  sensitive << aclk.neg();
+    }   
+};
+// buf_fifo.h
+#include "packet.h"
+SC_MODULE(buf_fifo) {
+    sc_in	<packet>		wr;
+    sc_out	<packet>		re;	
+	sc_in	<sc_uint<1> >	grant;
+	sc_out	<sc_uint<7> >	req;
+    sc_out	<bool>			ack;
+	sc_in	<bool>			bclk;
+
+	void func();
+
+    SC_CTOR(buf_fifo) 
+     {
+      SC_THREAD(func);
+      sensitive << wr;
+	  sensitive<< bclk.pos();
+    }  
+};
+
+struct fifo {
+public:
+
+   packet registers[4];
+   bool full;
+   bool empty;
+   int reg_num;
+  
+   // constructor
+
+   fifo()
+    {
+      full = false;
+      empty = true;
+      reg_num = 0;
+    };
+
+	// methods
+
+	void packet_in(const packet& data_packet);   
+	packet packet_out();
+};
+// crossbar.h
+#include "packet.h"
+SC_MODULE(crossbar) {
+
+    sc_in<packet>  i0;
+    sc_in<packet>  i1;
+    sc_in<packet>  i2;
+    sc_in<packet>  i3;
+	sc_in<packet>  i4;
+
+    sc_out<packet>  o0;
+    sc_out<packet>  o1;
+    sc_out<packet>  o2;
+    sc_out<packet>  o3;
+	sc_out<packet>  o4;
+
+	sc_in<sc_uint<15> >  config;
+	
+	void func();
+    SC_CTOR(crossbar) 
+		{
+		SC_THREAD(func);
+		sensitive << i0;
+		sensitive << i1;
+		sensitive << i2;
+		sensitive << i3;
+		sensitive << i4;
+    }  
+};
+// packet.h file
+#ifndef PACKET
+#define PACKET
+#include "systemc.h"
+struct packet {
+       sc_uint<11> data;	
+       sc_uint<4> id;			// packet source ID
+       sc_uint<4> dest;			// packet destination ID
+	   sc_uint<1> pkt_clk;		// bit for changing the new packet condition
+	   sc_uint<1> h_t;			// header or tail flit("1" represents tail)
+	   int send_time;
+       inline bool operator == (const packet& rhs) const
+		{
+		return (rhs.data == data && rhs.id == id && rhs.dest == dest && rhs.pkt_clk == pkt_clk && rhs.h_t == h_t);
+		}
+
+};
+
+inline
+ostream&
+operator << ( ostream& os, const packet& a )
+{
+    os << "streaming of struct packet not implemented";
+    return os;
+}
+
+inline
+void
+#if defined(SC_API_VERSION_STRING)
+    sc_trace( sc_trace_file* tf, const packet& a, const std::string& name )
+#else
+    sc_trace( sc_trace_file* tf, const packet& a, const sc_string& name )
+#endif
+{
+  sc_trace( tf, a.data, name + ".data" );
+  sc_trace( tf, a.id, name + ".id" );
+  sc_trace( tf, a.dest, name + ".dest" );
+  sc_trace( tf, a.pkt_clk, name + ".pkt_clk" );
+  sc_trace( tf, a.h_t, name + ".h_t" );
+}
+
+
+#endif
+// router.h
+#include "packet.h"
+#include "buf_fifo.h"
+#include "crossbar.h"
+#include "arbiter.h"
+SC_MODULE(router) {
+    sc_in<packet>  in0;
+    sc_in<packet>  in1;
+    sc_in<packet>  in2;
+    sc_in<packet>  in3;
+	sc_in<packet>  in4;
+
+	sc_in<sc_uint<4> > router_id;
+
+    sc_out<packet>  out0;
+    sc_out<packet>  out1;
+    sc_out<packet>  out2;
+    sc_out<packet>  out3;
+	sc_out<packet>  out4;
+	
+	sc_in<bool>  inack0;
+    sc_in<bool>  inack1;
+    sc_in<bool>  inack2;
+    sc_in<bool>  inack3;
+	sc_in<bool>  inack4;
+
+	sc_out<bool>  outack0;
+    sc_out<bool>  outack1;
+    sc_out<bool>  outack2;
+    sc_out<bool>  outack3;
+	sc_out<bool>  outack4;
+
+	sc_in<bool> rclk;
+	
+	buf_fifo* buf0;
+	buf_fifo* buf1;
+	buf_fifo* buf2;
+	buf_fifo* buf3;
+	buf_fifo* buf4;
+
+	arbiter* arbiter0;
+	crossbar* crossbar0;
+
+	sc_signal<sc_uint<7>  >  req_s_0;
+    sc_signal<sc_uint<7>  >  req_s_1;
+    sc_signal<sc_uint<7>  >  req_s_2;
+    sc_signal<sc_uint<7>  >  req_s_3;
+	sc_signal<sc_uint<7>  >  req_s_4;
+
+	sc_signal<sc_uint<4>  >  free_s;
+    sc_signal<sc_uint<15>  >  select_s;
+
+	sc_signal<sc_uint<1> >  gr_s_0;
+    sc_signal<sc_uint<1> >  gr_s_1;
+    sc_signal<sc_uint<1> >  gr_s_2;
+    sc_signal<sc_uint<1> >  gr_s_3;
+	sc_signal<sc_uint<1> >  gr_s_4;
+
+	sc_signal<packet>  re_s_0;
+    sc_signal<packet>  re_s_1;
+    sc_signal<packet>  re_s_2;
+    sc_signal<packet>  re_s_3;
+	sc_signal<packet>  re_s_4;
+	
+	void func();
+	int pkt_sent;
+
+    SC_CTOR(router) 
+		{
+		buf0 = new buf_fifo ("buf0");
+		buf0->wr(in0);
+		buf0->re(re_s_0);
+		buf0->ack(outack0);
+		buf0->req(req_s_0);
+		buf0->grant(gr_s_0);
+		buf0->bclk(rclk);
+
+		buf1 = new buf_fifo ("buf1");
+		buf1->wr(in1);
+		buf1->re(re_s_1);
+		buf1->ack(outack1);
+		buf1->req(req_s_1);
+		buf1->grant(gr_s_1);
+		buf1->bclk(rclk);
+
+		buf2 = new buf_fifo ("buf2");
+		buf2->wr(in2);
+		buf2->re(re_s_2);
+		buf2->ack(outack2);
+		buf2->req(req_s_2);
+		buf2->grant(gr_s_2);
+		buf2->bclk(rclk);
+
+		buf3 = new buf_fifo ("buf3");
+		buf3->wr(in3);
+		buf3->re(re_s_3);
+		buf3->ack(outack3);
+		buf3->req(req_s_3);
+		buf3->grant(gr_s_3);
+		buf3->bclk(rclk);
+
+		buf4 = new buf_fifo ("buf4");
+		buf4->wr(in4);
+		buf4->re(re_s_4);
+		buf4->ack(outack4);
+		buf4->req(req_s_4);
+		buf4->grant(gr_s_4);
+		buf4->bclk(rclk);
+
+		arbiter0 = new arbiter ("arbiter0");
+		
+		arbiter0->arbiter_id(router_id);
+
+		arbiter0->free_out0(inack0);
+		arbiter0->free_out1(inack1);
+		arbiter0->free_out2(inack2);
+		arbiter0->free_out3(inack3);
+		arbiter0->free_out4(inack4);
+		
+		arbiter0->req0(req_s_0);
+		arbiter0->req1(req_s_1);
+		arbiter0->req2(req_s_2);
+		arbiter0->req3(req_s_3);
+		arbiter0->req4(req_s_4);
+
+		arbiter0->grant0(gr_s_0);
+		arbiter0->grant1(gr_s_1);
+		arbiter0->grant2(gr_s_2);
+		arbiter0->grant3(gr_s_3);
+		arbiter0->grant4(gr_s_4);
+
+		arbiter0->aselect(select_s);
+
+		arbiter0->aclk(rclk);
+
+		crossbar0 = new crossbar ("crossbar0");
+		crossbar0->i0(re_s_0);
+		crossbar0->i1(re_s_1);
+		crossbar0->i2(re_s_2);
+		crossbar0->i3(re_s_3);
+		crossbar0->i4(re_s_4);
+
+		crossbar0->o0(out0);
+		crossbar0->o1(out1);
+		crossbar0->o2(out2);
+		crossbar0->o3(out3);
+		crossbar0->o4(out4);
+
+		crossbar0->config(select_s);
+
+		SC_THREAD(func);
+		sensitive << in0 << in1 << in2 << in3 << in4; 
+		pkt_sent = 0;
+    }   
+};
+
+// sink.h
+#include "packet.h"
+SC_MODULE(sink) {
+	sc_in<packet> packet_in;	// input port
+	sc_out<bool> ack_out;		// output port
+	sc_in<sc_uint<4> > sink_id;
+	sc_in<bool> sclk;
+	double total_delay = 0;
+	int total_packets = 0;
+	int pkt_recv;
+	
+	void receive_data();
+	// Constructor
+	SC_CTOR(sink) {
+		SC_METHOD(receive_data); // Method Process
+		dont_initialize();
+		sensitive << packet_in;
+		sensitive << sclk.pos();
+		pkt_recv = 0;
+	}
+};
+// source.h
+#include "packet.h"
+SC_MODULE(source) {
+
+  sc_out<packet> packet_out; 
+  sc_in<sc_uint<4> > source_id; 
+  sc_in<bool > ach_in;			// input acknowledgment
+  sc_in_clk CLK;
+  int pkt_snt;					// variable for recording of packet sent
+
+  void func();
+  
+  SC_CTOR(source)
+    {
+      SC_CTHREAD(func, CLK.pos());
+	  pkt_snt=0;
+    }  
+};
+//arbiter.cpp
+#undef SC_INCLUDE_FX
+
+#include "packet.h"
+#include "arbiter.h"
+
+void arbiter :: func()
+{
+	sc_uint<1> v_connected_input[5]; //set when input is connected to an output
+	sc_uint<1> v_reserved_output[6]; //set when output is reserved by a input (one output more for simple coding)
+	sc_uint<3> v_req[5];
+	sc_uint<5> v_free;	// status of output in term of being free
+	sc_uint<4> v_id;
+	sc_uint<5> v_arbit;
+	sc_uint<15> v_select;	
+	for(int i=0;i<5;i++){v_connected_input[i]=0;v_reserved_output[i]=0;v_req[i]=0;}
+	v_free = 31;  // '11111'
+	v_arbit = 0;
+	v_select = 0;
+
+
+	// functionality
+
+	while( true )
+	{ 
+		wait();
+		
+		sc_uint<2> id_col, id_row, dst_col, dst_row;
+		v_id = arbiter_id.read();
+		id_col = v_id.range(1,0);
+		id_row = v_id.range(3,2);
+		
+
+		grant0.write(0);				// reset grant
+		grant1.write(0);				// reset grant
+		grant2.write(0);				// reset grant
+		grant3.write(0);				// reset grant
+		grant4.write(0);				// reset grant
+		if (!free_out0.read()) {v_free = v_free | 1 ; }  // set the bit 0 showing the output 0 is free
+		if (!free_out1.read()) {v_free = v_free | 2 ; }
+		if (!free_out2.read()) {v_free = v_free | 4 ; }
+		if (!free_out3.read()) {v_free = v_free | 8 ; }
+		if (!free_out4.read()) {v_free = v_free | 16 ;}
+
+		v_id = arbiter_id.read();
+		if (!req0.read()[4]) //if FIFO buffer is not empty 
+		{
+			if(!v_connected_input[0]) { // if input is not connected i.e. it is header
+			/*if(v_id[0] < req0.read()[0]) v_req[0]=3; // go to east
+			else {	
+				if(v_id[0] > req0.read()[0])v_req[0]=5; //go to west
+				else{
+					if(v_id[1] < req0.read()[1])v_req[0]=4; // go to south
+					else{
+						if(v_id[1] > req0.read()[1])v_req[0]=2; //go to north
+						else v_req[0]=1; // that is the destination
+					}
+				}*/
+			  // AFTER (for 4x4):
+				//sc_uint<2> id_col = v_id.range(1,0);
+				//sc_uint<2> id_row = v_id.range(3,2);
+				dst_col = req0.read().range(1,0); // dest bits from req signal
+				dst_row = req0.read().range(3,2);
+
+				if(id_col < dst_col) v_req[0]=3;       // go east
+				else if(id_col > dst_col) v_req[0]=5;  // go west
+				else if(id_row < dst_row) v_req[0]=4;  // go south
+				else if(id_row > dst_row) v_req[0]=2;  // go north
+				else v_req[0]=1;                        // local destination
+			}
+			switch (v_req[0]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[0]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[0]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}			
+			if(v_arbit!=0){
+			// Only print if it's the start of a new packet (not already connected)
+			if(!v_connected_input[0]) {
+				cout << "[ROUTER " << (int)v_id << " @ (" << (int)id_row << "," << (int)id_col << ")] "
+					 << "Routing Packet to Dest (" << (int)dst_row << "," << (int)dst_col << ") "
+					 << "-> Selected Port: " << (int)v_req[0] << endl;
+			}
+			
+				grant0.write(1);				// set grant
+				v_select.range(2,0) = v_req[0];
+				v_free  = v_free & (~v_arbit);   // inactive the related output
+				v_connected_input[0]=1; // input 0 is connected
+				v_reserved_output[v_req[0]]=1; // output is reserved
+				if(req0.read()[5]){
+					v_connected_input[0]=0;v_reserved_output[v_req[0]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+		if (!req1.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[1]) {// if input is not connected i.e. it is header
+			/*if(v_id[0] < req1.read()[0]) v_req[1]=3; // go to east
+			else {	
+				if(v_id[0] > req1.read()[0])v_req[1]=5; //go to west
+				else {
+					if(v_id[1] < req1.read()[1])v_req[1]=4; // go to south
+					else {
+						if(v_id[1] > req1.read()[1])v_req[1]=2; //go to north
+						else v_req[1]=1; // that is the destination
+					}
+				}
+			}*/
+				//sc_uint<2> id_col = v_id.range(1,0);
+				//sc_uint<2> id_row = v_id.range(3,2);
+			    dst_col = req1.read().range(1,0); // dest bits from req signal
+				dst_row = req1.read().range(3,2);
+
+				if(id_col < dst_col) v_req[1]=3;       // go east
+				else if(id_col > dst_col) v_req[1]=5;  // go west
+				else if(id_row < dst_row) v_req[1]=4;  // go south
+				else if(id_row > dst_row) v_req[1]=2;  // go north
+				else v_req[1]=1;                        // local destination
+		    }
+			switch (v_req[1]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[1]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[1]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){					// if there is any free output
+			// Only print if it's the start of a new packet (not already connected)
+			if(!v_connected_input[0]) {
+				cout << "[ROUTER " << (int)v_id << " @ (" << (int)id_row << "," << (int)id_col << ")] "
+					 << "Routing Packet to Dest (" << (int)dst_row << "," << (int)dst_col << ") "
+					 << "-> Selected Port: " << (int)v_req[1] << endl;
+			}
+				grant1.write(1);	// set grant
+				v_select.range(5,3) = v_req[1];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[1]=1; // input 1 is connected
+				v_reserved_output[v_req[1]]=1; // output is reserved
+				if(req1.read()[5]){v_connected_input[1]=0;v_reserved_output[v_req[1]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+		if (!req2.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[2]) {// if input is not connected i.e. it is header
+			/*if(v_id[0] < req2.read()[0]) v_req[2]=3; // go to east
+			else {	
+				if(v_id[0] > req2.read()[0])v_req[2]=5; //go to west
+				else {
+					if(v_id[1] < req2.read()[1])v_req[2]=4; // go to south
+					else {
+						if(v_id[1] > req2.read()[1])v_req[2]=2; //go to north
+						else v_req[2]=1; // that is the destination
+					}
+				}*/
+				//sc_uint<2> id_col = v_id.range(1,0);
+				//sc_uint<2> id_row = v_id.range(3,2);
+				dst_col = req2.read().range(1,0); // dest bits from req signal
+				dst_row = req2.read().range(3,2);
+
+				if(id_col < dst_col) v_req[2]=3;       // go east
+				else if(id_col > dst_col) v_req[2]=5;  // go west
+				else if(id_row < dst_row) v_req[2]=4;  // go south
+				else if(id_row > dst_row) v_req[2]=2;  // go north
+				else v_req[2]=1;                        // local destination
+			}			
+			switch (v_req[2]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[2]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[2]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+			// Only print if it's the start of a new packet (not already connected)
+			if(!v_connected_input[0]) {
+				cout << "[ROUTER " << (int)v_id << " @ (" << (int)id_row << "," << (int)id_col << ")] "
+					 << "Routing Packet to Dest (" << (int)dst_row << "," << (int)dst_col << ") "
+					 << "-> Selected Port: " << (int)v_req[2] << endl;
+			}
+				grant2.write(1);	// set grant
+				v_select.range(8,6) = v_req[2];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[2]=1; // input 1 is connected
+				v_reserved_output[v_req[2]]=1; // output is reserved
+				if(req2.read()[5]){v_connected_input[2]=0;v_reserved_output[v_req[2]]=0;} // if it is tail flit, reset connection and reservation
+			}
+          }
+		if (!req3.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[3]) {// if input is not connected i.e. it is header
+			/*if(v_id[0] < req3.read()[0]) v_req[3]=3; // go to east
+			else {	
+				if(v_id[0] > req3.read()[0])v_req[3]=5; //go to west
+				else {
+					if(v_id[1] < req3.read()[1])v_req[3]=4; // go to south
+					else {
+						if(v_id[1] > req3.read()[1])v_req[3]=2; //go to north
+						else v_req[3]=1; // that is the destination
+					}
+				}
+			}*/
+				//sc_uint<2> id_col = v_id.range(1,0);
+				//sc_uint<2> id_row = v_id.range(3,2);
+				dst_col = req3.read().range(1,0); // dest bits from req signal
+				dst_row = req3.read().range(3,2);
+
+				if(id_col < dst_col) v_req[3]=3;       // go east
+				else if(id_col > dst_col) v_req[3]=5;  // go west
+				else if(id_row < dst_row) v_req[3]=4;  // go south
+				else if(id_row > dst_row) v_req[3]=2;  // go north
+				else v_req[3]=1;                        // local destination		
+		    }
+			switch (v_req[3]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[3]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[3]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+			// Only print if it's the start of a new packet (not already connected)
+			if(!v_connected_input[0]) {
+				cout << "[ROUTER " << (int)v_id << " @ (" << (int)id_row << "," << (int)id_col << ")] "
+					 << "Routing Packet to Dest (" << (int)dst_row << "," << (int)dst_col << ") "
+					 << "-> Selected Port: " << (int)v_req[3] << endl;
+			}
+				grant3.write(1);	// set grant
+				v_select.range(11,9) = v_req[3];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[3]=1; // input 3 is connected
+				v_reserved_output[v_req[3]]=1; // output is reserved
+				if(req3.read()[5]){v_connected_input[3]=0;v_reserved_output[v_req[3]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+
+		if (!req4.read()[4]) //if buffer is not empty  
+		{
+			if(!v_connected_input[4]) {// if input is not connected i.e. it is header
+			/*if(v_id[0] < req4.read()[0]) v_req[4]=3; // go to east
+			else {	
+				if(v_id[0] > req4.read()[0])v_req[4]=5; //go to west
+				else {
+					if(v_id[1] < req4.read()[1])v_req[4]=4; // go to south
+					else {
+						if(v_id[1] > req4.read()[1])v_req[4]=2; //go to north
+						else v_req[4]=1; // that is the destination
+					}
+				}
+			}*/
+				//sc_uint<2> id_col = v_id.range(1,0);
+				//sc_uint<2> id_row = v_id.range(3,2);
+				dst_col = req4.read().range(1,0); // dest bits from req signal
+				dst_row = req4.read().range(3,2);
+
+				if(id_col < dst_col) v_req[4]=3;       // go east
+				else if(id_col > dst_col) v_req[4]=5;  // go west
+				else if(id_row < dst_row) v_req[4]=4;  // go south
+				else if(id_row > dst_row) v_req[4]=2;  // go north
+				else v_req[4]=1;                        // local destination		
+		    }		
+			switch (v_req[4]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[4]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[4]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+			// Only print if it's the start of a new packet (not already connected)
+			if(!v_connected_input[0]) {
+				cout << "[ROUTER " << (int)v_id << " @ (" << (int)id_row << "," << (int)id_col << ")] "
+					 << "Routing Packet to Dest (" << (int)dst_row << "," << (int)dst_col << ") "
+					 << "-> Selected Port: " << (int)v_req[4] << endl;
+			}
+				grant4.write(1);	// set grant
+				v_select.range(14,12) = v_req[4];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[4]=1; // input 4 is connected
+				v_reserved_output[v_req[4]]=1; // output is reserved
+				if(req4.read()[5]){v_connected_input[4]=0;v_reserved_output[v_req[4]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+	aselect.write(v_select);
+	}
+}
+// buf_fifo.cpp
+
+#include "buf_fifo.h"
+
+    void fifo::packet_in(const packet& data_packet)
+    {
+      registers[reg_num++] = data_packet; 
+	  empty = false;
+      if (reg_num == 4) full = true;      
+    }
+
+    packet fifo::packet_out()
+    {
+		reg_num--;
+		packet temp;
+		temp = registers[0];
+		if (reg_num == 0) empty = true;
+		else 
+	{ 
+        registers[0] = registers[1];
+	    registers[1] = registers[2];
+	    registers[2] = registers[3];
+        }
+	   full = false;
+      return(temp);  
+    }
+
+void buf_fifo :: func()
+{
+	fifo q0;	// define a FIFO buffer
+	q0.reg_num = 0;
+	q0.full  = false;
+	q0.empty = true;
+	packet b_temp;
+	req.write((q0.registers[0].h_t,q0.empty, q0.registers[0].dest));
+
+	// functionality
+	while( true )
+	{ 
+		wait();
+		
+		
+		/////received packet/////     
+		if (wr.event()) 
+		{			
+			q0.packet_in(wr.read());
+			ack.write(q0.full);
+			req.write((q0.registers[0].h_t, q0.empty, q0.registers[0].dest));
+		}
+	    ///// sent packets out/////    
+		if (bclk.event()) 
+		{
+//			req.write((q0.empty, q0.registers[0].dest));
+			if(grant.read() == 1)
+			{
+				b_temp = q0.packet_out();
+				re.write(b_temp);
+				ack.write(q0.full);
+				req.write((q0.registers[0].h_t, q0.empty, q0.registers[0].dest));
+			}
+		}
+	}
+}// crossbar.cpp
+#include "packet.h"
+#include "crossbar.h"
+
+void crossbar :: func()
+	{
+	packet v_cross0;
+	packet v_cross1;
+	packet v_cross2;
+	packet v_cross3;
+	packet v_cross4;
+	sc_uint<15>  v_config;
+
+	// functionality
+	while( true )
+	{ 
+		wait();
+		v_config = config.read();
+		if (i0.event())
+		{  
+			v_cross0 = i0.read();
+			switch (v_config(2,0)) {
+				// MODIFIED - AFTER(corrected):
+				case 1: o0.write(v_cross0); break;  // local : sink
+				case 2: o2.write(v_cross0); break;  // north : out2
+				case 3: o3.write(v_cross0); break;  // east  : out3
+				case 4: o4.write(v_cross0); break;  // south : out4
+				case 5: o1.write(v_cross0); break;  // west  : out1
+				default: cout << "---------------------------------wrong destination   " <<endl ;break ;
+			}
+		}
+		if (i1.event())
+		{
+			v_cross1 = i1.read();
+			switch (v_config(5,3)) {
+				// MODIFIED - AFTER(corrected):
+				case 1: o0.write(v_cross1); break;  // local : sink
+				case 2: o2.write(v_cross1); break;  // north : out2
+				case 3: o3.write(v_cross1); break;  // east  : out3
+				case 4: o4.write(v_cross1); break;  // south : out4
+				case 5: o1.write(v_cross1); break;  // west  : out1
+				default: cout << "------------------------------------wrong destination   " <<endl;  break ;
+			}
+		}
+		if (i2.event())
+		{ 
+			v_cross2 = i2.read();
+			switch (v_config(8,6)) {
+				// MODIFIED - AFTER(corrected):
+				case 1: o0.write(v_cross2); break;  // local : sink
+				case 2: o2.write(v_cross2); break;  // north : out2
+				case 3: o3.write(v_cross2); break;  // east  : out3
+				case 4: o4.write(v_cross2); break;  // south : out4
+				case 5: o1.write(v_cross2); break;  // west  : out1
+				default: cout << "---------------------------------wrong destination   " <<endl; break ;
+			}
+		}
+		if (i3.event())
+		{ 
+			v_cross3 = i3.read();
+			switch (v_config(11,9)) {
+				// MODIFIED - AFTER(corrected):
+				case 1: o0.write(v_cross3); break;  // local : sink
+				case 2: o2.write(v_cross3); break;  // north : out2
+				case 3: o3.write(v_cross3); break;  // east  : out3
+				case 4: o4.write(v_cross3); break;  // south : out4
+				case 5: o1.write(v_cross3); break;  // west  : out1
+				default: cout << "----------------------------------wrong destination   " <<endl; break ;
+			}
+		}
+		if (i4.event())
+		{ 
+			v_cross4 = i4.read();
+			switch (v_config(14,12)) {
+				// MODIFIED - AFTER(corrected):
+				case 1: o0.write(v_cross4); break;  // local : sink
+				case 2: o2.write(v_cross4); break;  // north : out2
+				case 3: o3.write(v_cross4); break;  // east  : out3
+				case 4: o4.write(v_cross4); break;  // south : out4
+				case 5: o1.write(v_cross4); break;  // west  : out1
+				default: cout << "-------------------------------------wrong destination" <<endl ;break ;
+			}
+		}
+	}
+}
+// main.cpp (4x4 Mesh NoC)
+
+#include "systemc.h"
+#include <iostream>
+#include <stdlib.h>
+#include <stdio.h>
+#include "packet.h"
+#include "source.h"
+#include "sink.h"
+#include "router.h"
+
+
+int sc_main(int argc, char *argv[])
+{
+    // -------SIGNALS 
+    sc_signal<packet> si_source[16];
+    sc_signal<packet> si_sink[16];
+
+    // Each directional link is a SEPARATE signal so each has exactly one driver.
+    // Naming convention:  link index = row*3+col  for E-W  (3 per row, 4 rows = 12)
+    //                     link index = row*4+col  for N-S  (4 per col-gap, 3 gaps = 12)
+    sc_signal<packet> si_ew[12];       // East-bound  : router[i].out3 -> router[i+1].in1
+    sc_signal<packet> si_we[12];       // West-bound  : router[i+1].out1 -> router[i].in3
+    sc_signal<packet> si_ns[12];       // South-bound : router[i].out4 -> router[i+4].in2
+    sc_signal<packet> si_sn[12];       // North-bound : router[i+4].out2 -> router[i].in4
+
+    sc_signal<bool> si_ack_src[16],  si_ack_sink[16];
+    sc_signal<bool> si_ack_ew[12],   si_ack_we[12];
+    sc_signal<bool> si_ack_ns[12],   si_ack_sn[12];
+
+    // dummy signals for unused boundary ports
+    sc_signal<packet> si_zero[200];
+    sc_signal<bool>   si_ack_zero[200];
+
+    sc_signal<sc_uint<4> > id[16];
+
+    sc_clock s_clock("S_CLOCK", 125, SC_NS, 0.5, 0.0, SC_NS); // source clock
+    sc_clock r_clock("R_CLOCK", 5, SC_NS, 0.5, 10.0, SC_NS);	// router clock
+    sc_clock d_clock("D_CLOCK", 5,   SC_NS, 0.5, 10.0, SC_NS);	// destination clock
+
+    // Module instiatiations follow
+    // Note that modules can be connected by hooking up ports
+    // to signals by name or by using a positional notation
+    source* src[16];
+    sink*   snk[16];
+    router* r[16];
+
+    // -------INSTANTIATION 
+    for(int i = 0; i < 16; i++)
+    {
+        src[i] = new source(sc_gen_unique_name("source"));
+        src[i]->packet_out(si_source[i]);
+        src[i]->source_id(id[i]);
+        src[i]->ach_in(si_ack_src[i]);
+        src[i]->CLK(s_clock);
+
+        snk[i] = new sink(sc_gen_unique_name("sink"));
+        snk[i]->packet_in(si_sink[i]);
+        snk[i]->ack_out(si_ack_sink[i]);
+        snk[i]->sink_id(id[i]);
+        snk[i]->sclk(d_clock);
+
+        r[i] = new router(sc_gen_unique_name("router"));
+        r[i]->router_id(id[i]);
+        r[i]->rclk(r_clock);
+
+        // local
+        r[i]->in0(si_source[i]);
+        r[i]->out0(si_sink[i]);
+        r[i]->outack0(si_ack_src[i]);
+        r[i]->inack0(si_ack_sink[i]);
+    }
+
+    // ------CONNECTION 
+    // hooking up signals to ports by name
+    // Port mapping: in1/out1=West | in2/out2=North | in3/out3=East | in4/out4=South
+    int z = 0;
+    int za = 0;
+
+    for(int i = 0; i < 16; i++)
+    {
+        int row = i / 4;
+        int col = i % 4;
+
+        // -------- WEST input  (receives from the eastbound signal of left neighbour) --------
+        if(col > 0)
+        {
+            int link = row * 3 + (col - 1);   // E-W link index between col-1 and col
+            r[i]->in1(si_ew[link]);
+            r[i]->inack1(si_ack_ew[link]);
+        }
+        else
+        {
+            r[i]->in1(si_zero[z]);
+            r[i]->inack1(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- NORTH input  (receives from the southbound signal of upper neighbour) --------
+        if(row > 0)
+        {
+            int link = (row - 1) * 4 + col;   // N-S link index between row-1 and row
+            r[i]->in2(si_ns[link]);
+            r[i]->inack2(si_ack_ns[link]);
+        }
+        else
+        {
+            r[i]->in2(si_zero[z]);
+            r[i]->inack2(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- EAST input  (receives from the westbound signal of right neighbour) --------
+        if(col < 3)
+        {
+            int link = row * 3 + col;          // W-E link index between col and col+1
+            r[i]->in3(si_we[link]);
+            r[i]->inack3(si_ack_we[link]);
+        }
+        else
+        {
+            r[i]->in3(si_zero[z]);
+            r[i]->inack3(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- SOUTH input  (receives from the northbound signal of lower neighbour) --------
+        if(row < 3)
+        {
+            int link = row * 4 + col;          // S-N link index between row and row+1
+            r[i]->in4(si_sn[link]);
+            r[i]->inack4(si_ack_sn[link]);
+        }
+        else
+        {
+            r[i]->in4(si_zero[z]);
+            r[i]->inack4(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // ------------ OUTPUTS 
+
+        // -------- WEST output  (drives the westbound signal toward left neighbour) --------
+        if(col > 0)
+        {
+            int link = row * 3 + (col - 1);
+            r[i]->out1(si_we[link]);           // this router is the sole driver of si_we[link]
+            r[i]->outack1(si_ack_we[link]);
+        }
+        else
+        {
+            r[i]->out1(si_zero[z]);
+            r[i]->outack1(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- NORTH output  (drives the northbound signal toward upper neighbour) --------
+        if(row > 0)
+        {
+            int link = (row - 1) * 4 + col;
+            r[i]->out2(si_sn[link]);           // this router is the sole driver of si_sn[link]
+            r[i]->outack2(si_ack_sn[link]);
+        }
+        else
+        {
+            r[i]->out2(si_zero[z]);
+            r[i]->outack2(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- EAST output  (drives the eastbound signal toward right neighbour) --------
+        if(col < 3)
+        {
+            int link = row * 3 + col;
+            r[i]->out3(si_ew[link]);           // this router is the sole driver of si_ew[link]
+            r[i]->outack3(si_ack_ew[link]);
+        }
+        else
+        {
+            r[i]->out3(si_zero[z]);
+            r[i]->outack3(si_ack_zero[za]);
+            z++; za++;
+        }
+
+        // -------- SOUTH output  (drives the southbound signal toward lower neighbour) --------
+        if(row < 3)
+        {
+            int link = row * 4 + col;
+            r[i]->out4(si_ns[link]);           // this router is the sole driver of si_ns[link]
+            r[i]->outack4(si_ack_ns[link]);
+        }
+        else
+        {
+            r[i]->out4(si_zero[z]);
+            r[i]->outack4(si_ack_zero[za]);
+            z++; za++;
+        }
+    }
+
+//sc_start(0, SC_NS);
+  // tracing:
+    // trace file creation
+    sc_trace_file *tf = sc_create_vcd_trace_file("graph");
+    // External Signals
+    sc_trace(tf, s_clock, "s_clock");
+    sc_trace(tf, d_clock, "d_clock");
+    sc_trace(tf, si_source[0],  "si_source[0]");
+    sc_trace(tf, si_source[1],  "si_source[1]");
+    sc_trace(tf, si_source[2],  "si_source[2]");
+    sc_trace(tf, si_source[3],  "si_source[3]");
+    sc_trace(tf, si_source[4],  "si_source[4]");
+    sc_trace(tf, si_source[5],  "si_source[5]");
+    sc_trace(tf, si_source[6],  "si_source[6]");
+    sc_trace(tf, si_source[7],  "si_source[7]");
+    sc_trace(tf, si_source[8],  "si_source[8]");
+    sc_trace(tf, si_source[9],  "si_source[9]");
+    sc_trace(tf, si_source[10], "si_source[10]");
+    sc_trace(tf, si_source[11], "si_source[11]");
+    sc_trace(tf, si_source[12], "si_source[12]");
+    sc_trace(tf, si_source[13], "si_source[13]");
+    sc_trace(tf, si_source[14], "si_source[14]");
+    sc_trace(tf, si_source[15], "si_source[15]");
+    sc_trace(tf, si_sink[0],    "si_sink[0]");
+    sc_trace(tf, si_sink[1],    "si_sink[1]");
+    sc_trace(tf, si_sink[2],    "si_sink[2]");
+    sc_trace(tf, si_sink[3],    "si_sink[3]");
+    sc_trace(tf, si_sink[4],    "si_sink[4]");
+    sc_trace(tf, si_sink[5],    "si_sink[5]");
+    sc_trace(tf, si_sink[6],    "si_sink[6]");
+    sc_trace(tf, si_sink[7],    "si_sink[7]");
+    sc_trace(tf, si_sink[8],    "si_sink[8]");
+    sc_trace(tf, si_sink[9],    "si_sink[9]");
+    sc_trace(tf, si_sink[10],   "si_sink[10]");
+    sc_trace(tf, si_sink[11],   "si_sink[11]");
+    sc_trace(tf, si_sink[12],   "si_sink[12]");
+    sc_trace(tf, si_sink[13],   "si_sink[13]");
+    sc_trace(tf, si_sink[14],   "si_sink[14]");
+    sc_trace(tf, si_sink[15],   "si_sink[15]");
+
+    for(int i = 0; i < 16; i++)
+        id[i].write(i);
+
+    cout << endl;
+    cout << "-------------------------------------------------------------------------------" << endl;
+    cout << endl << " 4X4 mesh NOC simulator containing 16 5x5 Wormhole routers " << endl;
+    cout << "-------------------------------------------------------------------------------" << endl;
+    cout << "This is the simulation of a 4x4 Wormhole router.  " << endl;
+    cout << "We assume the router has 5 input/output ports, with 4 buffers per input port " << endl;
+    cout << "and each flit has 21 bits width " << endl;
+    cout << "  Press \"Return\" key to start the simulation..." << endl << endl;
+
+	cout << "\nCoordinate Mapping Legend:" << endl;
+	for(int i = 0; i < 16; i++) {
+		cout << "ID " << i << ":(" << i/4 << "," << i%4 << ")\t";
+		if((i+1)%4 == 0) cout << endl;
+	}
+	cout << "\n--- STARTING TRAFFIC FLOW ---\n" << endl;
+
+    getchar();
+    sc_start(10*125+124, SC_NS); // during [(10*125)+124] ns 10 packets will be sent and received
+
+    sc_close_vcd_trace_file(tf);
+
+    cout << endl << endl << "-------------------------------------------------------------------------------" << endl;
+    cout << "End of switch operation..." << endl;
+    cout << "Total number of packets sent: " << endl;
+    for(int i = 0; i < 16; i++)
+        cout << "  source" << i << ": " << src[i]->pkt_snt << endl;
+    cout << "Total number of packets received: " << endl;
+    for(int i = 0; i < 16; i++)
+        cout << "  sink" << i << ": " << snk[i]->pkt_recv << endl;
+    cout << "-------------------------------------------------------------------------------" << endl;
+    cout << "  Press \"Return\" key to end the simulation..." << endl << endl;
+    getchar();
+    return 0;
+
+}
+
+
+
+/*#include "systemc.h"
+#include <iostream>
+#include "packet.h"
+#include "source.h"
+#include "sink.h"
+#include "router.h"
+
+using namespace std;
+
+int sc_main(int argc, char *argv[])
+{
+    // ================= SIGNALS =================
+    sc_signal<packet> si_source[16];
+    sc_signal<packet> si_sink[16];
+
+    sc_signal<packet> si_h[24];   // horizontal links
+    sc_signal<packet> si_v[24];   // vertical links
+
+    sc_signal<bool> si_ack_src[16], si_ack_sink[16];
+    sc_signal<bool> si_ack_h[24], si_ack_v[24];
+
+    sc_signal<sc_uint<4>> id[16];
+
+    // ================= CLOCKS =================
+    sc_clock s_clock("S_CLOCK", 10, SC_NS);
+    sc_clock r_clock("R_CLOCK", 10, SC_NS);
+    sc_clock d_clock("D_CLOCK", 10, SC_NS);
+
+    // ================= MODULES =================
+    source* src[16];
+    sink* snk[16];
+    router* r[16];
+
+    // ================= CREATE MODULES =================
+    for(int i = 0; i < 16; i++)
+    {
+        src[i] = new source(sc_gen_unique_name("source"));
+        src[i]->packet_out(si_source[i]);
+        src[i]->source_id(id[i]);
+        src[i]->ach_in(si_ack_src[i]);
+        src[i]->CLK(s_clock);
+
+        snk[i] = new sink(sc_gen_unique_name("sink"));
+        snk[i]->packet_in(si_sink[i]);
+        snk[i]->ack_out(si_ack_sink[i]);
+        snk[i]->sink_id(id[i]);
+        snk[i]->sclk(d_clock);
+
+        r[i] = new router(sc_gen_unique_name("router"));
+        r[i]->router_id(id[i]);
+        r[i]->rclk(r_clock);
+
+        // Local connection
+        r[i]->in0(si_source[i]);
+        r[i]->out0(si_sink[i]);
+
+        r[i]->outack0(si_ack_src[i]);
+        r[i]->inack0(si_ack_sink[i]);
+    }
+
+    // ================= CONNECT MESH =================
+    int h = 0; // horizontal index
+    int v = 0; // vertical index
+
+    for(int i = 0; i < 16; i++)
+    {
+        int row = i / 4;
+        int col = i % 4;
+
+        // -------- EAST CONNECTION --------
+        if(col < 3)
+        {
+            r[i]->out3(si_h[h]);      // current ? east
+            r[i+1]->in1(si_h[h]);     // east router ? west input
+
+            r[i]->outack3(si_ack_h[h]);
+            r[i+1]->inack1(si_ack_h[h]);
+
+            h++;
+        }
+
+        // -------- WEST CONNECTION --------
+        if(col > 0)
+        {
+            r[i]->in1(si_h[h-1]);     // receive from west
+            r[i-1]->out3(si_h[h-1]);  // west router sends east
+
+            r[i]->inack1(si_ack_h[h-1]);
+            r[i-1]->outack3(si_ack_h[h-1]);
+        }
+
+        // -------- SOUTH CONNECTION --------
+        if(row < 3)
+        {
+            r[i]->out4(si_v[v]);      // current ? south
+            r[i+4]->in2(si_v[v]);     // south router ? north input
+
+            r[i]->outack4(si_ack_v[v]);
+            r[i+4]->inack2(si_ack_v[v]);
+
+            v++;
+        }
+
+        // -------- NORTH CONNECTION --------
+        if(row > 0)
+        {
+            r[i]->in2(si_v[v-1]);     // receive from north
+            r[i-4]->out4(si_v[v-1]);  // north router sends south
+
+            r[i]->inack2(si_ack_v[v-1]);
+            r[i-4]->outack4(si_ack_v[v-1]);
+        }
+    }
+
+    // ================= ASSIGN IDS =================
+    for(int i = 0; i < 16; i++)
+        id[i].write(i);
+
+    cout << "4x4 Mesh NoC Simulation Started..." << endl;
+
+    sc_start(2000, SC_NS);
+
+    cout << "Simulation Finished." << endl;
+
+    return 0;
+}*/
+/*#include "systemc.h"
+#include <iostream>
+#include <stdlib.h>
+#include <stdio.h>
+#include "packet.h"
+#include "source.h"
+#include "sink.h"
+#include "router.h"
+
+
+int sc_main(int argc, char *argv[])
+{
+	sc_signal<packet> si_source[4];
+	sc_signal<packet> si_input[4];
+	sc_signal<packet> si_zero[16];
+	sc_signal<packet> si_sink[4];
+	sc_signal<packet> si_output[4];
+	sc_signal<bool>  si_ack_src[4],si_ack_ou[4];
+	sc_signal<bool>  si_ack_sink[4],si_ack_in[4];
+	sc_signal<bool>  si_ack_zero[16];
+	sc_signal<sc_uint<4> >  id0,id1,id2,id3;
+	sc_clock s_clock("S_CLOCK", 125, SC_NS, 0.5, 0.0, SC_NS); // source clock
+	sc_clock r_clock("R_CLOCK", 125, SC_NS, 0.5, 0.0, SC_NS);	// router clock
+	sc_clock d_clock("D_CLOCK", 5, SC_NS, 0.5, 10.0, SC_NS);	// destination clock
+	
+	// Module instiatiations follow
+	// Note that modules can be connected by hooking up ports 
+	// to signals by name or by using a positional notation
+	source source0("source0");
+	source0(si_source[0], id0, si_ack_src[0], s_clock);
+	//need codes
+	//need codes
+	//need codes
+
+
+	router router0("router0");
+	// hooking up signals to ports by name
+	router0.in0(si_source[0]);
+	router0.in2(si_input[0]);
+	router0.in3(si_input[3]);
+	router0.in1(si_zero[0]);
+	router0.in4(si_zero[1]);
+
+	router0.router_id(id0);
+
+	router0.out0(si_sink[0]);
+	router0.out2(si_output[0]);
+	router0.out3(si_output[3]);
+	router0.out1(si_zero[2]);
+	router0.out4(si_zero[3]);
+
+	router0.inack0(si_ack_sink[0]);
+	router0.inack2(si_ack_in[0]);
+	router0.inack3(si_ack_in[3]);
+	router0.inack1(si_ack_zero[0]);
+	router0.inack4(si_ack_zero[1]);
+
+	router0.outack0(si_ack_src[0]);
+	router0.outack2(si_ack_ou[0]);
+	router0.outack3(si_ack_ou[3]);
+	router0.outack1(si_ack_zero[2]);
+	router0.outack4(si_ack_zero[3]);
+
+	router0.rclk(r_clock);
+
+	router router1("router1");
+	// hooking up signals to ports by name
+	router1.in0(si_source[1]);
+	router1.in2(si_zero[4]);
+	router1.in3(si_input[1]);
+	router1.in4(si_output[0]);
+	router1.in1(si_zero[5]);
+
+	router1.router_id(id1);
+
+	router1.out0(si_sink[1]);
+	router1.out2(si_zero[6]);
+	router1.out3(si_output[1]);
+	router1.out4(si_input[0]);
+	router1.out1(si_zero[7]);
+
+	router1.inack0(si_ack_sink[1]);
+	router1.inack2(si_ack_zero[4]);
+	router1.inack3(si_ack_in[1]);
+	router1.inack4(si_ack_ou[0]);
+	router1.inack1(si_ack_zero[5]);
+
+	router1.outack0(si_ack_src[1]);
+	router1.outack2(si_ack_zero[6]);
+	router1.outack3(si_ack_ou[1]);
+	router1.outack4(si_ack_in[0]);
+	router1.outack1(si_ack_zero[7]);
+
+	router1.rclk(r_clock);
+	//need 64 code statement
+
+
+  	//need codes
+	sink sink1("sink1");
+	sink1(si_sink[1], si_ack_sink[1], id1, d_clock);
+	//need codes
+	//need codes
+
+//sc_start(0, SC_NS);
+  // tracing:
+	// trace file creation
+	sc_trace_file *tf = sc_create_vcd_trace_file("graph");
+	// External Signals
+	sc_trace(tf, s_clock, "s_clock");
+	sc_trace(tf, d_clock, "d_clock");
+	sc_trace(tf, si_source[0], "si_source[0]");
+	sc_trace(tf, si_source[0], "si_source[1]");
+	//need codes
+	//need codes
+	sc_trace(tf, si_source[0], "si_sink[0]");
+	sc_trace(tf, si_source[0], "si_sink[1]");
+	//need codes
+	//need codes
+	
+	id0.write(0);
+	id1.write(1);
+	//need codes
+	//need codes
+
+	cout << endl;
+	cout << "-------------------------------------------------------------------------------" << endl;
+	cout << endl << " 1X2 mesh NOC simulator containing 2 5x5 Wormhole router " << endl;
+	cout << "-------------------------------------------------------------------------------" << endl;
+	cout << "This is the simulation of a 1x2 Wormhole router.  " << endl; 
+	cout << "We assume the router has 5 input/output ports, with 4 buffers per input port " << endl;
+	cout << "and each flit has 21 bits width " << endl;
+	cout << "  Press \"Return\" key to start the simulation..." << endl << endl;
+
+	getchar();
+	sc_start(10*125+124, SC_NS); // during [(10*125)+124] ns 10 packets will be sent and received 
+
+	sc_close_vcd_trace_file(tf);
+
+	cout << endl << endl << "-------------------------------------------------------------------------------" << endl;
+	cout << "End of switch operation..." << endl;
+	cout << "Total number of packets sent: " <<  source0.pkt_snt<< endl;//need codes to be added
+	cout << "Total number of packets received: " <<  sink1.pkt_recv<< endl;//need codes to be added
+	cout << "-------------------------------------------------------------------------------" << endl;
+    cout << "  Press \"Return\" key to end the simulation..." << endl << endl;
+	getchar();
+  return 0;
+
+}*/
+
+// router.cpp
+#include "router.h"
+#define SIM_NUM 30
+
+void router :: func()
+{
+	int sim_count;
+
+  // FILE *result;
+
+  // initialization
+
+  sim_count  = 0;
+
+  // result = fopen("result","w");
+
+
+
+  // functionality
+  while( sim_count++ < SIM_NUM )
+    { 
+       wait();
+	    if (in0.event()){pkt_sent++;}//cout <<  "			source "<< in0.read().id << "    router" << router_id.read()<< endl;} 
+		if (in1.event()){pkt_sent++;}//cout << "			source "<< in1.read().id << "    router" << router_id.read()<< endl;}
+		if (in2.event()){pkt_sent++;}//cout << "			source "<< in2.read().id << "    router" << router_id.read()<< endl;}
+		if (in3.event()){pkt_sent++;}//cout << "			source "<< in3.read().id << "    router" << router_id.read()<< endl;}
+		if (in4.event()){pkt_sent++;}//cout << "			source "<< in4.read().id << "    router" << router_id.read()<< endl;}
+
+    } 
+
+ // sc_stop();
+  
+}
+// sink.cpp
+#include "sink.h"
+void sink::receive_data(){
+
+	packet v_packet;
+	if ( sclk.event() ) ack_out.write(false);
+	if (packet_in.event() ) 
+	{ 
+		pkt_recv++ ;
+		ack_out.write(true);
+		v_packet= packet_in.read();
+
+		double recv_time = sc_time_stamp().to_double();
+		double delay = recv_time - v_packet.send_time;
+
+		total_delay += delay;
+
+		if(v_packet.h_t) { // only count packet at tail
+			total_packets++;
+			cout << "======== Average Delay for the packets(5 flits) so far: " << total_delay / total_packets << "========" << endl;
+		    cout << "   ------------------------------------------------------------" << endl;
+		}
+		//cout << "			New Pkt:  " << (int)v_packet.data<< " is received from source: " << (int)v_packet.id  << " by sink:  " << (int)sink_id.read() << " With Delay:  " << (double)delay << endl;
+		cout << "   >>> [SINK " << sink_id.read() << "] RECEIVED Packet from Source " << v_packet.id << " | Total Latency: " << (double)delay << "ns" << endl;
+	}
+}
+// source.cpp
+#include "source.h"
+void source:: func()
+	{
+	packet v_packet_out;
+	v_packet_out.data=1000; // e.g.
+	v_packet_out.pkt_clk = '0';  // an imaginary clock for packets
+	while(true)
+		{
+		wait();
+		if(!ach_in.read())
+			{
+			v_packet_out.data = v_packet_out.data +source_id.read()+ 1  ; // made a desired data
+			v_packet_out.id = source_id.read();
+			v_packet_out.dest= (source_id.read() + 1) % 16;											// assign destination
+			//if(v_packet_out.id == 1) goto exclode;	// prevent from reciving flits by itself 			 
+			v_packet_out.pkt_clk= ~v_packet_out.pkt_clk ;  // add an imaginary clock to each flit 
+			v_packet_out.h_t=false;
+			pkt_snt++;
+			v_packet_out.send_time = sc_time_stamp().to_double();//Record TIMESTAMP of source sending the packets
+			
+			if((pkt_snt%5)==0)v_packet_out.h_t=true; // make tail flit (the packet size is 5)
+			packet_out.write(v_packet_out);
+
+			cout << "New Pkt: " << v_packet_out.data << " is sent by source: " << source_id.read()  << "  to Destination:   "<< v_packet_out.dest <<endl;
+exclode:;
+			}  
+		}
+	}

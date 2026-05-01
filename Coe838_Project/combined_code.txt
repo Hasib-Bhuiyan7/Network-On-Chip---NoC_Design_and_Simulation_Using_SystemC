@@ -1,0 +1,954 @@
+// arbiter.h
+#include "systemc.h"
+SC_MODULE(arbiter) {
+
+	sc_in<sc_uint<4> > arbiter_id;
+    sc_in<sc_uint<7>  >  req0;
+    sc_in<sc_uint<7>  >  req1;
+    sc_in<sc_uint<7>  >  req2;
+    sc_in<sc_uint<7>  >  req3;
+	sc_in<sc_uint<7>  >  req4;
+
+	sc_in<bool  >  free_out0;
+	sc_in<bool  >  free_out1;
+	sc_in<bool  >  free_out2;
+	sc_in<bool  >  free_out3;
+	sc_in<bool  >  free_out4;
+
+    sc_out<sc_uint<15> >  aselect;
+
+	sc_out<sc_uint<1> >  grant0;
+    sc_out<sc_uint<1> >  grant1;
+    sc_out<sc_uint<1> >  grant2;
+    sc_out<sc_uint<1> >  grant3;
+	sc_out<sc_uint<1> >  grant4;
+
+	sc_in<bool> aclk;
+	
+	void func();
+
+    SC_CTOR(arbiter) 
+     {
+      SC_THREAD(func);
+	  sensitive << aclk.neg();
+    }   
+};
+
+// buf_fifo.h
+#include "packet.h"
+SC_MODULE(buf_fifo) {
+    sc_in	<packet>		wr;
+    sc_out	<packet>		re;	
+	sc_in	<sc_uint<1> >	grant;
+	sc_out	<sc_uint<7> >	req;
+    sc_out	<bool>			ack;
+	sc_in	<bool>			bclk;
+
+	void func();
+
+    SC_CTOR(buf_fifo) 
+     {
+      SC_THREAD(func);
+      sensitive << wr;
+	  sensitive<< bclk.pos();
+    }  
+};
+
+struct fifo {
+public:
+
+   packet registers[4];
+   bool full;
+   bool empty;
+   int reg_num;
+  
+   // constructor
+
+   fifo()
+    {
+      full = false;
+      empty = true;
+      reg_num = 0;
+    };
+
+	// methods
+
+	void packet_in(const packet& data_packet);   
+	packet packet_out();
+};
+
+// crossbar.h
+#include "packet.h"
+SC_MODULE(crossbar) {
+
+    sc_in<packet>  i0;
+    sc_in<packet>  i1;
+    sc_in<packet>  i2;
+    sc_in<packet>  i3;
+	sc_in<packet>  i4;
+
+    sc_out<packet>  o0;
+    sc_out<packet>  o1;
+    sc_out<packet>  o2;
+    sc_out<packet>  o3;
+	sc_out<packet>  o4;
+
+	sc_in<sc_uint<15> >  config;
+	
+	void func();
+    SC_CTOR(crossbar) 
+		{
+		SC_THREAD(func);
+		sensitive << i0;
+		sensitive << i1;
+		sensitive << i2;
+		sensitive << i3;
+		sensitive << i4;
+    }  
+};
+
+// packet.h file
+#ifndef PACKET
+#define PACKET
+#include "systemc.h"
+struct packet {
+       sc_uint<11> data;	
+       sc_uint<4> id;			// packet source ID
+       sc_uint<4> dest;			// packet destination ID
+	   sc_uint<1> pkt_clk;		// bit for changing the new packet condition
+	   sc_uint<1> h_t;			// header or tail flit("1" represents tail)
+	   int send_time;
+       inline bool operator == (const packet& rhs) const
+		{
+		return (rhs.data == data && rhs.id == id && rhs.dest == dest && rhs.pkt_clk == pkt_clk && rhs.h_t == h_t);
+		}
+
+};
+
+inline
+ostream&
+operator << ( ostream& os, const packet& a )
+{
+    os << "streaming of struct packet not implemented";
+    return os;
+}
+
+inline
+void
+#if defined(SC_API_VERSION_STRING)
+    sc_trace( sc_trace_file* tf, const packet& a, const std::string& name )
+#else
+    sc_trace( sc_trace_file* tf, const packet& a, const sc_string& name )
+#endif
+{
+  sc_trace( tf, a.data, name + ".data" );
+  sc_trace( tf, a.id, name + ".id" );
+  sc_trace( tf, a.dest, name + ".dest" );
+  sc_trace( tf, a.pkt_clk, name + ".pkt_clk" );
+  sc_trace( tf, a.h_t, name + ".h_t" );
+}
+
+
+#endif
+
+// router.h
+#include "packet.h"
+#include "buf_fifo.h"
+#include "crossbar.h"
+#include "arbiter.h"
+SC_MODULE(router) {
+    sc_in<packet>  in0;
+    sc_in<packet>  in1;
+    sc_in<packet>  in2;
+    sc_in<packet>  in3;
+	sc_in<packet>  in4;
+
+	sc_in<sc_uint<4> > router_id;
+
+    sc_out<packet>  out0;
+    sc_out<packet>  out1;
+    sc_out<packet>  out2;
+    sc_out<packet>  out3;
+	sc_out<packet>  out4;
+	
+	sc_in<bool>  inack0;
+    sc_in<bool>  inack1;
+    sc_in<bool>  inack2;
+    sc_in<bool>  inack3;
+	sc_in<bool>  inack4;
+
+	sc_out<bool>  outack0;
+    sc_out<bool>  outack1;
+    sc_out<bool>  outack2;
+    sc_out<bool>  outack3;
+	sc_out<bool>  outack4;
+
+	sc_in<bool> rclk;
+	
+	buf_fifo* buf0;
+	buf_fifo* buf1;
+	buf_fifo* buf2;
+	buf_fifo* buf3;
+	buf_fifo* buf4;
+
+	arbiter* arbiter0;
+	crossbar* crossbar0;
+
+	sc_signal<sc_uint<7>  >  req_s_0;
+    sc_signal<sc_uint<7>  >  req_s_1;
+    sc_signal<sc_uint<7>  >  req_s_2;
+    sc_signal<sc_uint<7>  >  req_s_3;
+	sc_signal<sc_uint<7>  >  req_s_4;
+
+	sc_signal<sc_uint<4>  >  free_s;
+    sc_signal<sc_uint<15>  >  select_s;
+
+	sc_signal<sc_uint<1> >  gr_s_0;
+    sc_signal<sc_uint<1> >  gr_s_1;
+    sc_signal<sc_uint<1> >  gr_s_2;
+    sc_signal<sc_uint<1> >  gr_s_3;
+	sc_signal<sc_uint<1> >  gr_s_4;
+
+	sc_signal<packet>  re_s_0;
+    sc_signal<packet>  re_s_1;
+    sc_signal<packet>  re_s_2;
+    sc_signal<packet>  re_s_3;
+	sc_signal<packet>  re_s_4;
+	
+	void func();
+	int pkt_sent;
+
+    SC_CTOR(router) 
+		{
+		buf0 = new buf_fifo ("buf0");
+		buf0->wr(in0);
+		buf0->re(re_s_0);
+		buf0->ack(outack0);
+		buf0->req(req_s_0);
+		buf0->grant(gr_s_0);
+		buf0->bclk(rclk);
+
+		buf1 = new buf_fifo ("buf1");
+		buf1->wr(in1);
+		buf1->re(re_s_1);
+		buf1->ack(outack1);
+		buf1->req(req_s_1);
+		buf1->grant(gr_s_1);
+		buf1->bclk(rclk);
+
+		buf2 = new buf_fifo ("buf2");
+		buf2->wr(in2);
+		buf2->re(re_s_2);
+		buf2->ack(outack2);
+		buf2->req(req_s_2);
+		buf2->grant(gr_s_2);
+		buf2->bclk(rclk);
+
+		buf3 = new buf_fifo ("buf3");
+		buf3->wr(in3);
+		buf3->re(re_s_3);
+		buf3->ack(outack3);
+		buf3->req(req_s_3);
+		buf3->grant(gr_s_3);
+		buf3->bclk(rclk);
+
+		buf4 = new buf_fifo ("buf4");
+		buf4->wr(in4);
+		buf4->re(re_s_4);
+		buf4->ack(outack4);
+		buf4->req(req_s_4);
+		buf4->grant(gr_s_4);
+		buf4->bclk(rclk);
+
+		arbiter0 = new arbiter ("arbiter0");
+		
+		arbiter0->arbiter_id(router_id);
+
+		arbiter0->free_out0(inack0);
+		arbiter0->free_out1(inack1);
+		arbiter0->free_out2(inack2);
+		arbiter0->free_out3(inack3);
+		arbiter0->free_out4(inack4);
+		
+		arbiter0->req0(req_s_0);
+		arbiter0->req1(req_s_1);
+		arbiter0->req2(req_s_2);
+		arbiter0->req3(req_s_3);
+		arbiter0->req4(req_s_4);
+
+		arbiter0->grant0(gr_s_0);
+		arbiter0->grant1(gr_s_1);
+		arbiter0->grant2(gr_s_2);
+		arbiter0->grant3(gr_s_3);
+		arbiter0->grant4(gr_s_4);
+
+		arbiter0->aselect(select_s);
+
+		arbiter0->aclk(rclk);
+
+		crossbar0 = new crossbar ("crossbar0");
+		crossbar0->i0(re_s_0);
+		crossbar0->i1(re_s_1);
+		crossbar0->i2(re_s_2);
+		crossbar0->i3(re_s_3);
+		crossbar0->i4(re_s_4);
+
+		crossbar0->o0(out0);
+		crossbar0->o1(out1);
+		crossbar0->o2(out2);
+		crossbar0->o3(out3);
+		crossbar0->o4(out4);
+
+		crossbar0->config(select_s);
+
+		SC_THREAD(func);
+		sensitive << in0 << in1 << in2 << in3 << in4; 
+		pkt_sent = 0;
+    }   
+};
+
+// sink.h
+#include "packet.h"
+SC_MODULE(sink) {
+	sc_in<packet> packet_in;	// input port
+	sc_out<bool> ack_out;		// output port
+	sc_in<sc_uint<4> > sink_id;
+	sc_in<bool> sclk;
+	double total_delay = 0;
+	int total_packets = 0;
+	int pkt_recv;
+	
+	void receive_data();
+	// Constructor
+	SC_CTOR(sink) {
+		SC_METHOD(receive_data); // Method Process
+		dont_initialize();
+		sensitive << packet_in;
+		sensitive << sclk.pos();
+		pkt_recv = 0;
+	}
+};
+
+// source.h
+#include "packet.h"
+SC_MODULE(source) {
+
+  sc_out<packet> packet_out; 
+  sc_in<sc_uint<4> > source_id; 
+  sc_in<bool > ach_in;			// input acknowledgment
+  sc_in_clk CLK;
+  int pkt_snt;					// variable for recording of packet sent
+
+  void func();
+  
+  SC_CTOR(source)
+    {
+      SC_CTHREAD(func, CLK.pos());
+	  pkt_snt=0;
+    }  
+};
+
+//arbiter.cpp
+#undef SC_INCLUDE_FX
+
+#include "packet.h"
+#include "arbiter.h"
+
+void arbiter :: func()
+{
+	sc_uint<1> v_connected_input[5]; //set when input is connected to an output
+	sc_uint<1> v_reserved_output[6]; //set when output is reserved by a input (one output more for simple coding)
+	sc_uint<3> v_req[5];
+	sc_uint<5> v_free;	// status of output in term of being free
+	sc_uint<4> v_id;
+	sc_uint<5> v_arbit;
+	sc_uint<15> v_select;	
+	for(int i=0;i<5;i++){v_connected_input[i]=0;v_reserved_output[i]=0;v_req[i]=0;}
+	v_free = 31;  // '11111'
+	v_arbit = 0;
+	v_select = 0;
+
+
+	// functionality
+
+	while( true )
+	{ 
+		wait();
+		grant0.write(0);				// reset grant
+		grant1.write(0);				// reset grant
+		grant2.write(0);				// reset grant
+		grant3.write(0);				// reset grant
+		grant4.write(0);				// reset grant
+		if (!free_out0.read()) {v_free = v_free | 1 ; }  // set the bit 0 showing the output 0 is free
+		if (!free_out1.read()) {v_free = v_free | 2 ; }
+		if (!free_out2.read()) {v_free = v_free | 4 ; }
+		if (!free_out3.read()) {v_free = v_free | 8 ; }
+		if (!free_out4.read()) {v_free = v_free | 16 ;}
+
+		v_id = arbiter_id.read();
+		if (!req0.read()[4]) //if FIFO buffer is not empty 
+		{
+			if(!v_connected_input[0]) { // if input is not connected i.e. it is header
+			if(v_id[0] < req0.read()[0]) v_req[0]=3; // go to east
+			else {	
+				if(v_id[0] > req0.read()[0])v_req[0]=5; //go to west
+				else{
+					if(v_id[1] < req0.read()[1])v_req[0]=4; // go to south
+					else{
+						if(v_id[1] > req0.read()[1])v_req[0]=2; //go to north
+						else v_req[0]=1; // that is the destination
+					}
+				}
+			}
+		    }
+			switch (v_req[0]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[0]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[0]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}			
+			if(v_arbit!=0){
+				grant0.write(1);				// set grant
+				v_select.range(2,0) = v_req[0];
+				v_free  = v_free & (~v_arbit);   // inactive the related output
+				v_connected_input[0]=1; // input 0 is connected
+				v_reserved_output[v_req[0]]=1; // output is reserved
+				if(req0.read()[5]){
+					v_connected_input[0]=0;v_reserved_output[v_req[0]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+		if (!req1.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[1]) {// if input is not connected i.e. it is header
+			if(v_id[0] < req1.read()[0]) v_req[1]=3; // go to east
+			else {	
+				if(v_id[0] > req1.read()[0])v_req[1]=5; //go to west
+				else {
+					if(v_id[1] < req1.read()[1])v_req[1]=4; // go to south
+					else {
+						if(v_id[1] > req1.read()[1])v_req[1]=2; //go to north
+						else v_req[1]=1; // that is the destination
+					}
+				}
+			}
+		    }
+			switch (v_req[1]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[1]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[1]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){					// if there is any free output
+				grant1.write(1);	// set grant
+				v_select.range(5,3) = v_req[1];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[1]=1; // input 1 is connected
+				v_reserved_output[v_req[1]]=1; // output is reserved
+				if(req1.read()[5]){v_connected_input[1]=0;v_reserved_output[v_req[1]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+		if (!req2.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[2]) {// if input is not connected i.e. it is header
+			if(v_id[0] < req2.read()[0]) v_req[2]=3; // go to east
+			else {	
+				if(v_id[0] > req2.read()[0])v_req[2]=5; //go to west
+				else {
+					if(v_id[1] < req2.read()[1])v_req[2]=4; // go to south
+					else {
+						if(v_id[1] > req2.read()[1])v_req[2]=2; //go to north
+						else v_req[2]=1; // that is the destination
+					}
+				}
+			}			
+		    }
+			switch (v_req[2]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[2]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[2]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+				grant2.write(1);	// set grant
+				v_select.range(8,6) = v_req[2];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[2]=1; // input 1 is connected
+				v_reserved_output[v_req[2]]=1; // output is reserved
+				if(req2.read()[5]){v_connected_input[2]=0;v_reserved_output[v_req[2]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+
+		if (!req3.read()[4]) //if buffer is not empty 
+		{
+			if(!v_connected_input[3]) {// if input is not connected i.e. it is header
+			if(v_id[0] < req3.read()[0]) v_req[3]=3; // go to east
+			else {	
+				if(v_id[0] > req3.read()[0])v_req[3]=5; //go to west
+				else {
+					if(v_id[1] < req3.read()[1])v_req[3]=4; // go to south
+					else {
+						if(v_id[1] > req3.read()[1])v_req[3]=2; //go to north
+						else v_req[3]=1; // that is the destination
+					}
+				}
+			}			
+		    }
+			switch (v_req[3]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[3]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[3]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+				grant3.write(1);	// set grant
+				v_select.range(11,9) = v_req[3];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[3]=1; // input 3 is connected
+				v_reserved_output[v_req[3]]=1; // output is reserved
+				if(req3.read()[5]){v_connected_input[3]=0;v_reserved_output[v_req[3]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+
+		if (!req4.read()[4]) //if buffer is not empty  
+		{
+			if(!v_connected_input[4]) {// if input is not connected i.e. it is header
+			if(v_id[0] < req4.read()[0]) v_req[4]=3; // go to east
+			else {	
+				if(v_id[0] > req4.read()[0])v_req[4]=5; //go to west
+				else {
+					if(v_id[1] < req4.read()[1])v_req[4]=4; // go to south
+					else {
+						if(v_id[1] > req4.read()[1])v_req[4]=2; //go to north
+						else v_req[4]=1; // that is the destination
+					}
+				}
+			}			
+		    }
+			switch (v_req[4]) {
+				case 1:	v_arbit=v_free &  1; break;
+				case 2: v_arbit=v_free &  2; break;
+				case 3: v_arbit=v_free &  4; break;
+				case 4: v_arbit=v_free &  8; break;
+				case 5: v_arbit=v_free &  16; break;
+				default: break ;
+			}
+			if(!v_connected_input[4]) // if input is not connected
+			{
+				if (v_reserved_output[v_req[4]])v_arbit=0; // if the requested output was reserved, go to next input 
+			}
+			if(v_arbit!=0){
+				grant4.write(1);	// set grant
+				v_select.range(14,12) = v_req[4];
+				v_free  = v_free & (~v_arbit);   // inactive the related outputs
+				v_connected_input[4]=1; // input 4 is connected
+				v_reserved_output[v_req[4]]=1; // output is reserved
+				if(req4.read()[5]){v_connected_input[4]=0;v_reserved_output[v_req[4]]=0;} // if it is tail flit, reset connection and reservation
+			}
+		}
+	aselect.write(v_select);
+	}
+}
+
+
+// buf_fifo.cpp
+
+#include "buf_fifo.h"
+
+    void fifo::packet_in(const packet& data_packet)
+    {
+      registers[reg_num++] = data_packet; 
+	  empty = false;
+      if (reg_num == 4) full = true;      
+    }
+
+    packet fifo::packet_out()
+    {
+		reg_num--;
+		packet temp;
+		temp = registers[0];
+		if (reg_num == 0) empty = true;
+		else 
+	{ 
+        registers[0] = registers[1];
+	    registers[1] = registers[2];
+	    registers[2] = registers[3];
+        }
+	   full = false;
+      return(temp);  
+    }
+
+void buf_fifo :: func()
+{
+	fifo q0;	// define a FIFO buffer
+	q0.reg_num = 0;
+	q0.full  = false;
+	q0.empty = true;
+	packet b_temp;
+	req.write((q0.registers[0].h_t,q0.empty, q0.registers[0].dest));
+
+	// functionality
+	while( true )
+	{ 
+		wait();
+		
+		
+		/////received packet/////     
+		if (wr.event()) 
+		{			
+			q0.packet_in(wr.read());
+			ack.write(q0.full);
+			req.write((q0.registers[0].h_t, q0.empty, q0.registers[0].dest));
+		}
+	    ///// sent packets out/////    
+		if (bclk.event()) 
+		{
+//			req.write((q0.empty, q0.registers[0].dest));
+			if(grant.read() == 1)
+			{
+				b_temp = q0.packet_out();
+				re.write(b_temp);
+				ack.write(q0.full);
+				req.write((q0.registers[0].h_t, q0.empty, q0.registers[0].dest));
+			}
+		}
+	}
+
+
+}// crossbar.cpp
+#include "packet.h"
+#include "crossbar.h"
+
+void crossbar :: func()
+	{
+	packet v_cross0;
+	packet v_cross1;
+	packet v_cross2;
+	packet v_cross3;
+	packet v_cross4;
+	sc_uint<15>  v_config;
+
+	// functionality
+	while( true )
+	{ 
+		wait();
+		v_config = config.read();
+		if (i0.event())
+		{  
+			v_cross0 = i0.read();
+			switch (v_config(2,0)) {
+				case 2: o1.write(v_cross0); break;
+				case 3: o2.write(v_cross0); break;
+				case 4: o3.write(v_cross0); break;
+				case 5:	o4.write(v_cross0); break;
+				default: cout << "---------------------------------wrong destination   " <<endl ;break ;
+			}
+		}
+		if (i1.event())
+		{
+			v_cross1 = i1.read();
+			switch (v_config(5,3)) {
+				case 1:	o0.write(v_cross1); break;
+				case 3: o2.write(v_cross1); break;
+				case 4: o3.write(v_cross1); break;
+				case 5: o4.write(v_cross1); break;
+				default: cout << "------------------------------------wrong destination   " <<endl;  break ;
+			}
+		}
+		if (i2.event())
+		{ 
+			v_cross2 = i2.read();
+			switch (v_config(8,6)) {
+				case 1:	o0.write(v_cross2); break;
+				case 2: o1.write(v_cross2); break;
+				case 4: o3.write(v_cross2); break;
+				case 5: o4.write(v_cross2); break;
+				default: cout << "---------------------------------wrong destination   " <<endl; break ;
+			}
+		}
+		if (i3.event())
+		{ 
+			v_cross3 = i3.read();
+			switch (v_config(11,9)) {
+				case 1:	o0.write(v_cross3); break;
+				case 2: o1.write(v_cross3); break;
+				case 3: o2.write(v_cross3); break;
+				case 5: o4.write(v_cross3); break;
+				default: cout << "----------------------------------wrong destination   " <<endl; break ;
+			}
+		}
+		if (i4.event())
+		{ 
+			v_cross4 = i4.read();
+			switch (v_config(14,12)) {
+				case 1:	o0.write(v_cross4); break;
+				case 2: o1.write(v_cross4); break;
+				case 3: o2.write(v_cross4); break;
+				case 4: o3.write(v_cross4); break;
+				default: cout << "-------------------------------------wrong destination" <<endl ;break ;
+			}
+		}
+	}
+
+}// main.cpp
+#include "systemc.h"
+#include <iostream>
+#include <stdlib.h>
+#include <stdio.h>
+#include "packet.h"
+#include "source.h"
+#include "sink.h"
+#include "router.h"
+
+
+int sc_main(int argc, char *argv[])
+{
+	sc_signal<packet> si_source[4];
+	sc_signal<packet> si_input[4];
+	sc_signal<packet> si_zero[16];
+	sc_signal<packet> si_sink[4];
+	sc_signal<packet> si_output[4];
+	sc_signal<bool>  si_ack_src[4],si_ack_ou[4];
+	sc_signal<bool>  si_ack_sink[4],si_ack_in[4];
+	sc_signal<bool>  si_ack_zero[16];
+	sc_signal<sc_uint<4> >  id0,id1,id2,id3;
+	sc_clock s_clock("S_CLOCK", 125, SC_NS, 0.5, 0.0, SC_NS); // source clock
+	sc_clock r_clock("R_CLOCK", 125, SC_NS, 0.5, 0.0, SC_NS);	// router clock
+	sc_clock d_clock("D_CLOCK", 5, SC_NS, 0.5, 10.0, SC_NS);	// destination clock
+	
+	// Module instiatiations follow
+	// Note that modules can be connected by hooking up ports 
+	// to signals by name or by using a positional notation
+	source source0("source0");
+	source0(si_source[0], id0, si_ack_src[0], s_clock);
+	//need codes
+	//need codes
+	//need codes
+
+
+	router router0("router0");
+	// hooking up signals to ports by name
+	router0.in0(si_source[0]);
+	router0.in2(si_input[0]);
+	router0.in3(si_input[3]);
+	router0.in1(si_zero[0]);
+	router0.in4(si_zero[1]);
+
+	router0.router_id(id0);
+
+	router0.out0(si_sink[0]);
+	router0.out2(si_output[0]);
+	router0.out3(si_output[3]);
+	router0.out1(si_zero[2]);
+	router0.out4(si_zero[3]);
+
+	router0.inack0(si_ack_sink[0]);
+	router0.inack2(si_ack_in[0]);
+	router0.inack3(si_ack_in[3]);
+	router0.inack1(si_ack_zero[0]);
+	router0.inack4(si_ack_zero[1]);
+
+	router0.outack0(si_ack_src[0]);
+	router0.outack2(si_ack_ou[0]);
+	router0.outack3(si_ack_ou[3]);
+	router0.outack1(si_ack_zero[2]);
+	router0.outack4(si_ack_zero[3]);
+
+	router0.rclk(r_clock);
+
+	router router1("router1");
+	// hooking up signals to ports by name
+	router1.in0(si_source[1]);
+	router1.in2(si_zero[4]);
+	router1.in3(si_input[1]);
+	router1.in4(si_output[0]);
+	router1.in1(si_zero[5]);
+
+	router1.router_id(id1);
+
+	router1.out0(si_sink[1]);
+	router1.out2(si_zero[6]);
+	router1.out3(si_output[1]);
+	router1.out4(si_input[0]);
+	router1.out1(si_zero[7]);
+
+	router1.inack0(si_ack_sink[1]);
+	router1.inack2(si_ack_zero[4]);
+	router1.inack3(si_ack_in[1]);
+	router1.inack4(si_ack_ou[0]);
+	router1.inack1(si_ack_zero[5]);
+
+	router1.outack0(si_ack_src[1]);
+	router1.outack2(si_ack_zero[6]);
+	router1.outack3(si_ack_ou[1]);
+	router1.outack4(si_ack_in[0]);
+	router1.outack1(si_ack_zero[7]);
+
+	router1.rclk(r_clock);
+	//need 64 code statement
+
+
+  	//need codes
+	sink sink1("sink1");
+	sink1(si_sink[1], si_ack_sink[1], id1, d_clock);
+	//need codes
+	//need codes
+
+//sc_start(0, SC_NS);
+  // tracing:
+	// trace file creation
+	sc_trace_file *tf = sc_create_vcd_trace_file("graph");
+	// External Signals
+	sc_trace(tf, s_clock, "s_clock");
+	sc_trace(tf, d_clock, "d_clock");
+	sc_trace(tf, si_source[0], "si_source[0]");
+	sc_trace(tf, si_source[0], "si_source[1]");
+	//need codes
+	//need codes
+	sc_trace(tf, si_source[0], "si_sink[0]");
+	sc_trace(tf, si_source[0], "si_sink[1]");
+	//need codes
+	//need codes
+	
+	id0.write(0);
+	id1.write(1);
+	//need codes
+	//need codes
+
+	cout << endl;
+	cout << "-------------------------------------------------------------------------------" << endl;
+	cout << endl << " 1X2 mesh NOC simulator containing 2 5x5 Wormhole router " << endl;
+	cout << "-------------------------------------------------------------------------------" << endl;
+	cout << "This is the simulation of a 1x2 Wormhole router.  " << endl; 
+	cout << "We assume the router has 5 input/output ports, with 4 buffers per input port " << endl;
+	cout << "and each flit has 21 bits width " << endl;
+	cout << "  Press \"Return\" key to start the simulation..." << endl << endl;
+
+	getchar();
+	sc_start(10*125+124, SC_NS); // during [(10*125)+124] ns 10 packets will be sent and received 
+
+	sc_close_vcd_trace_file(tf);
+
+	cout << endl << endl << "-------------------------------------------------------------------------------" << endl;
+	cout << "End of switch operation..." << endl;
+	cout << "Total number of packets sent: " <<  source0.pkt_snt<< endl;//need codes to be added
+	cout << "Total number of packets received: " <<  sink1.pkt_recv<< endl;//need codes to be added
+	cout << "-------------------------------------------------------------------------------" << endl;
+    cout << "  Press \"Return\" key to end the simulation..." << endl << endl;
+	getchar();
+  return 0;
+
+}
+
+// router.cpp
+#include "router.h"
+#define SIM_NUM 30
+
+void router :: func()
+{
+	int sim_count;
+
+  // FILE *result;
+
+  // initialization
+
+  sim_count  = 0;
+
+  // result = fopen("result","w");
+
+
+
+  // functionality
+  while( sim_count++ < SIM_NUM )
+    { 
+       wait();
+	    if (in0.event()){pkt_sent++;}//cout <<  "			source "<< in0.read().id << "    router" << router_id.read()<< endl;} 
+		if (in1.event()){pkt_sent++;}//cout << "			source "<< in1.read().id << "    router" << router_id.read()<< endl;}
+		if (in2.event()){pkt_sent++;}//cout << "			source "<< in2.read().id << "    router" << router_id.read()<< endl;}
+		if (in3.event()){pkt_sent++;}//cout << "			source "<< in3.read().id << "    router" << router_id.read()<< endl;}
+		if (in4.event()){pkt_sent++;}//cout << "			source "<< in4.read().id << "    router" << router_id.read()<< endl;}
+
+    } 
+
+ // sc_stop();
+  
+}
+
+// sink.cpp
+#include "sink.h"
+void sink::receive_data(){
+
+	packet v_packet;
+	if ( sclk.event() ) ack_out.write(false);
+	if (packet_in.event() ) 
+	{ 
+		pkt_recv++ ;
+		ack_out.write(true);
+		v_packet= packet_in.read();
+
+		double recv_time = sc_time_stamp().to_double();
+		double delay = recv_time - v_packet.send_time;
+
+		total_delay += delay;
+
+		if(v_packet.h_t) { // only count packet at tail
+			total_packets++;
+			cout << "Average Delay for the packet so far: " << total_delay / total_packets << endl;
+		}
+		cout << "			New Pkt:  " << (int)v_packet.data<< " is received from source: " << (int)v_packet.id  << " by sink:  " << (int)sink_id.read() << " With Delay:  " << (double)delay << endl;
+
+	}
+}
+
+// source.cpp
+#include "source.h"
+void source:: func()
+	{
+	packet v_packet_out;
+	v_packet_out.data=1000; // e.g.
+	v_packet_out.pkt_clk = '0';  // an imaginary clock for packets
+	while(true)
+		{
+		wait();
+		if(!ach_in.read())
+			{
+			v_packet_out.data = v_packet_out.data +source_id.read()+ 1  ; // made a desired data
+			v_packet_out.id = source_id.read();
+			v_packet_out.dest= 1;											// assign destination
+			if(v_packet_out.id == 1) goto exclode;	// prevent from reciving flits by itself 			 
+			v_packet_out.pkt_clk= ~v_packet_out.pkt_clk ;  // add an imaginary clock to each flit 
+			v_packet_out.h_t=false;
+			pkt_snt++;
+			v_packet_out.send_time = sc_time_stamp().to_double();//Record TIMESTAMP of source sending the packets
+			
+			if((pkt_snt%5)==0)v_packet_out.h_t=true; // make tail flit (the packet size is 5)
+			packet_out.write(v_packet_out);
+
+			cout << "New Pkt: " << v_packet_out.data << " is sent by source: " << source_id.read()  << "  to Destination:   "<< v_packet_out.dest <<endl;
+exclode:;
+			}  
+		}
+	}
